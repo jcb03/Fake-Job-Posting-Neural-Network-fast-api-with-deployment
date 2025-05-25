@@ -4,4 +4,36 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115.12",
+    "httpx>=0.28.1",
+    "imbalanced-learn>=0.13.0",
+    "joblib>=1.5.1",
+    "matplotlib>=3.10.3",
+    "nltk>=3.9.1",
+    "numpy>=2.2.6",
+    "pandas>=2.2.3",
+    "plotly>=6.1.1",
+    "pydantic>=2.11.5",
+    "python-dotenv>=1.1.0",
+    "python-multipart>=0.0.20",
+    "regex>=2024.11.6",
+    "requests>=2.32.3",
+    "scikit-learn>=1.6.1",
+    "scipy>=1.15.3",
+    "seaborn>=0.13.2",
+    "streamlit>=1.45.1",
+    "tqdm>=4.67.1",
+    "uvicorn>=0.34.2",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+    "flake8>=7.2.0",
+    "isort>=6.0.1",
+    "mypy>=1.15.0",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.26.0",
+    "pytest-cov>=6.1.1",
+]

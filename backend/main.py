@@ -191,6 +191,3 @@ async def batch_predict(jobs: list[JobPostingRequest]):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-app = app  # For compatibility with Streamlit
-# This line is necessary to ensure the FastAPI app is recognized by Streamlit

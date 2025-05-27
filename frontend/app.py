@@ -8,6 +8,7 @@ import io
 import json
 from typing import Dict, Any
 import time
+import os
 
 # Page configuration
 st.set_page_config(
@@ -62,8 +63,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# API Configuration - Updated for local development
-API_BASE_URL = "http://localhost:8000"  
+# API Configuration 
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000") 
 
 def check_api_health():
     """Check if the API is running"""

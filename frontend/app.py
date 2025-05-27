@@ -254,6 +254,27 @@ def single_prediction_page():
                     "Job Function", 
                     placeholder="e.g., Engineering, Marketing, Sales"
                 )
+                
+                department = st.text_input(
+                    "Department", 
+                    placeholder="e.g., IT, HR, Operations"
+                )
+                
+                salary_range = st.text_input(
+                    "Salary Range", 
+                    placeholder="e.g., $50K-70K"
+                )
+        
+        # Additional options
+        st.markdown("**Company Information:**")
+        col5, col6, col7 = st.columns(3)
+        
+        with col5:
+            has_company_logo = st.checkbox("Has Company Logo", value=True)
+        with col6:
+            telecommuting = st.checkbox("Remote Work Available")
+        with col7:
+            has_questions = st.checkbox("Has Screening Questions")
         
         submitted = st.form_submit_button("🔍 Analyze Job Posting", type="primary")
     
@@ -261,7 +282,7 @@ def single_prediction_page():
         if not title or not description:
             st.error("❌ Please fill in required fields: Job Title and Job Description")
         else:
-            # Prepare data for API - Match your backend main.py expectations
+            # Prepare data for API - Updated to include ALL fields
             job_data = {
                 "title": title,
                 "description": description,
@@ -273,7 +294,12 @@ def single_prediction_page():
                 "required_experience": required_experience or "",
                 "required_education": required_education or "",
                 "industry": industry or "",
-                "function": function or ""
+                "function": function or "",
+                "department": department or "",
+                "salary_range": salary_range or "",
+                "has_company_logo": 1 if has_company_logo else 0,
+                "telecommuting": 1 if telecommuting else 0,
+                "has_questions": 1 if has_questions else 0
             }
             
             with st.spinner("🤖 Analyzing job posting..."):
@@ -283,22 +309,22 @@ def single_prediction_page():
                 st.markdown("---")
                 st.subheader("🎯 Analysis Results")
                 
-                # Main results display - Match your backend response format
+                # Main results display
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
-                    prediction = result["prediction"]  # 0 or 1 from your backend
+                    prediction = result["prediction"]  # 0 or 1
                     if prediction == 1:
                         st.error("🚨 **FAKE JOB POSTING**")
                     else:
                         st.success("✅ **REAL JOB POSTING**")
                 
                 with col2:
-                    probability = result["probability"]  # Float from your backend
+                    probability = result["probability"]  # Float
                     st.metric("Fraud Probability", f"{probability:.1%}")
                 
                 with col3:
-                    confidence = result["confidence"]  # String from your backend
+                    confidence = result["confidence"]  # String
                     confidence_colors = {"High": "🟢", "Medium": "🟡", "Low": "🔴"}
                     color_icon = confidence_colors.get(confidence, "🔵")
                     st.metric("Confidence", f"{color_icon} {confidence}")
@@ -407,7 +433,12 @@ def batch_analysis_page():
                         "required_experience": str(row.get('required_experience', '')),
                         "required_education": str(row.get('required_education', '')),
                         "industry": str(row.get('industry', '')),
-                        "function": str(row.get('function', ''))
+                        "function": str(row.get('function', '')),
+                        "department": str(row.get('department', '')),
+                        "salary_range": str(row.get('salary_range', '')),
+                        "has_company_logo": int(row.get('has_company_logo', 1)),
+                        "telecommuting": int(row.get('telecommuting', 0)),
+                        "has_questions": int(row.get('has_questions', 0))
                     }
                     jobs_data.append(job_data)
                 
@@ -519,7 +550,7 @@ def model_info_page():
     """Model information and performance page"""
     st.markdown('<h1 class="main-header">🧠 Model Information</h1>', unsafe_allow_html=True)
     
-    # Model performance metrics - Match your actual results
+    # Model performance metrics
     st.subheader("📊 Model Performance")
     
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -534,7 +565,7 @@ def model_info_page():
     with col5:
         st.metric("ROC-AUC", "97.65%", "↑ 0.2%")
     
-    # Model architecture - Match your ImbalanceAwareNeuralNetwork
+    # Model architecture
     st.subheader("🏗️ Model Architecture")
     st.markdown("""
     **ImbalanceAwareNeuralNetwork Built from Scratch**
@@ -546,7 +577,7 @@ def model_info_page():
     - **Learning Rate**: 0.0001 (optimized for stability)
     """)
     
-    # Feature engineering - Match your ImbalanceAwarePreprocessor
+    # Feature engineering
     st.subheader("🔧 Feature Engineering")
     st.markdown("""
     **Text Processing**:
@@ -565,7 +596,7 @@ def model_info_page():
     - Company profile presence indicators
     """)
     
-    # Training details - Match your actual implementation
+    # Training details
     st.subheader("🎯 Training Details")
     st.markdown("""
     **Class Imbalance Handling**:
@@ -606,7 +637,7 @@ def main():
         ["Single Prediction", "Batch Analysis", "Model Information"]
     )
     
-    # Model performance in sidebar - Your actual results
+    # Model performance in sidebar
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📊 Quick Stats")
     st.sidebar.metric("Accuracy", "91.15%")
@@ -638,7 +669,7 @@ def main():
             """
             <div style='text-align: center;'>
                 <p><strong>Built with ❤️ using Neural Networks from scratch</strong></p>
-                <p><strong>Powered by FastAPI + Streamlit</strong> | Model trained on Fake Job Posting Dataset</p>
+                <p><strong>Powered by FastAPI + Streamlit | Model trained on Kaggle dataset</strong></p>
                 <br>
                 <p>👨‍💻 <strong>Developed by Jai Chaudhary</strong></p>
                 <p>

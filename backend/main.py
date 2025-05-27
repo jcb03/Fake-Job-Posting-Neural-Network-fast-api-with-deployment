@@ -126,6 +126,11 @@ class JobPostingRequest(BaseModel):
     required_education: Optional[str] = Field("", description="Required education")
     industry: Optional[str] = Field("", description="Industry")
     function: Optional[str] = Field("", description="Job function")
+    department: Optional[str] = Field("", description="Department")
+    salary_range: Optional[str] = Field("", description="Salary range")
+    has_company_logo: Optional[int] = Field(1, description="Has company logo")
+    telecommuting: Optional[int] = Field(0, description="Remote work")
+    has_questions: Optional[int] = Field(0, description="Has screening questions")
 
 class PredictionResponse(BaseModel):
     prediction: int = Field(..., description="0 for real, 1 for fake")
@@ -160,12 +165,32 @@ async def predict_job_posting(job: JobPostingRequest):
         raise HTTPException(status_code=503, detail="Models not loaded")
     
     try:
-        # Convert request to DataFrame
-        job_dict = job.dict()
-        job_dict['fraudulent'] = 0  # Dummy value
+        # Convert request to DataFrame with ALL expected columns
+        job_dict = {
+            'title': job.title,
+            'description': job.description,
+            'company_profile': job.company_profile or "",
+            'requirements': job.requirements or "",
+            'benefits': job.benefits or "",
+            'location': job.location or "",
+            'employment_type': job.employment_type or "",
+            'required_experience': job.required_experience or "",
+            'required_education': job.required_education or "",
+            'industry': job.industry or "",
+            'function': job.function or "",
+            'department': job.department or "",
+            'salary_range': job.salary_range or "",
+            'has_company_logo': job.has_company_logo if job.has_company_logo is not None else 1,
+            'telecommuting': job.telecommuting if job.telecommuting is not None else 0,
+            'has_questions': job.has_questions if job.has_questions is not None else 0,
+            'fraudulent': 0  # Dummy value
+        }
+        
         job_data = pd.DataFrame([job_dict])
         
         logger.info(f"Processing prediction for job: {job.title}")
+        logger.info(f"DataFrame columns: {list(job_data.columns)}")
+        logger.info(f"DataFrame shape: {job_data.shape}")
         
         # Preprocess data
         X_processed = preprocessor.transform(job_data)
@@ -239,8 +264,26 @@ async def batch_predict(jobs: list[JobPostingRequest]):
     try:
         results = []
         for job in jobs:
-            job_dict = job.dict()
-            job_dict['fraudulent'] = 0
+            # Convert to DataFrame with ALL expected columns
+            job_dict = {
+                'title': job.title,
+                'description': job.description,
+                'company_profile': job.company_profile or "",
+                'requirements': job.requirements or "",
+                'benefits': job.benefits or "",
+                'location': job.location or "",
+                'employment_type': job.employment_type or "",
+                'required_experience': job.required_experience or "",
+                'required_education': job.required_education or "",
+                'industry': job.industry or "",
+                'function': job.function or "",
+                'department': job.department or "",
+                'salary_range': job.salary_range or "",
+                'has_company_logo': job.has_company_logo if job.has_company_logo is not None else 1,
+                'telecommuting': job.telecommuting if job.telecommuting is not None else 0,
+                'has_questions': job.has_questions if job.has_questions is not None else 0,
+                'fraudulent': 0  # Dummy value
+            }
             job_data = pd.DataFrame([job_dict])
             
             X_processed = preprocessor.transform(job_data)
@@ -257,7 +300,7 @@ async def batch_predict(jobs: list[JobPostingRequest]):
         
     except Exception as e:
         logger.error(f"Batch prediction error: {e}")
-        raise HTTPException(status_code=500, detail=f"Batch predictionfailed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Batch prediction failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

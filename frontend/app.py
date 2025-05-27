@@ -3,10 +3,7 @@ import requests
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from plotly.subplots import make_subplots
 import io
-import json
-from typing import Dict, Any
 import time
 import os
 
@@ -63,7 +60,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# API Configuration 
+# API Configuration - Support both local and Docker
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 def check_api_health():
@@ -74,7 +71,7 @@ def check_api_health():
     except requests.exceptions.RequestException:
         return False, None
 
-def predict_single_job(job_data: Dict[str, Any]) -> Dict[str, Any]:
+def predict_single_job(job_data):
     """Send prediction request to API"""
     try:
         response = requests.post(
@@ -88,7 +85,7 @@ def predict_single_job(job_data: Dict[str, Any]) -> Dict[str, Any]:
         st.error(f"API request failed: {str(e)}")
         return None
 
-def predict_batch_jobs(jobs_data: list) -> Dict[str, Any]:
+def predict_batch_jobs(jobs_data):
     """Send batch prediction request to API"""
     try:
         response = requests.post(
@@ -102,7 +99,7 @@ def predict_batch_jobs(jobs_data: list) -> Dict[str, Any]:
         st.error(f"Batch prediction failed: {str(e)}")
         return None
 
-def create_risk_gauge(probability: float, prediction: int) -> go.Figure:
+def create_risk_gauge(probability, prediction):
     """Create a risk level gauge chart"""
     # Determine color based on prediction and probability
     if prediction == 1:  # Fake
@@ -137,7 +134,7 @@ def create_risk_gauge(probability: float, prediction: int) -> go.Figure:
     fig.update_layout(height=300)
     return fig
 
-def display_risk_analysis(risk_factors: Dict[str, Any]):
+def display_risk_analysis(risk_factors):
     """Display detailed risk analysis"""
     st.subheader("🔍 Risk Factor Analysis")
     
@@ -264,7 +261,7 @@ def single_prediction_page():
         if not title or not description:
             st.error("❌ Please fill in required fields: Job Title and Job Description")
         else:
-            # Prepare data for API - Updated to match backend expectations
+            # Prepare data for API - Match your backend main.py expectations
             job_data = {
                 "title": title,
                 "description": description,
@@ -274,7 +271,7 @@ def single_prediction_page():
                 "location": location or "",
                 "employment_type": employment_type or "",
                 "required_experience": required_experience or "",
-                "required_education": required_education or "",  # Added this field
+                "required_education": required_education or "",
                 "industry": industry or "",
                 "function": function or ""
             }
@@ -286,23 +283,22 @@ def single_prediction_page():
                 st.markdown("---")
                 st.subheader("🎯 Analysis Results")
                 
-                # Main results display
+                # Main results display - Match your backend response format
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
-                    # Updated to handle backend response format
-                    prediction = result["prediction"]  # 0 or 1
+                    prediction = result["prediction"]  # 0 or 1 from your backend
                     if prediction == 1:
                         st.error("🚨 **FAKE JOB POSTING**")
                     else:
                         st.success("✅ **REAL JOB POSTING**")
                 
                 with col2:
-                    probability = result["probability"]  # Already a float
+                    probability = result["probability"]  # Float from your backend
                     st.metric("Fraud Probability", f"{probability:.1%}")
                 
                 with col3:
-                    confidence = result["confidence"]  # Already a string
+                    confidence = result["confidence"]  # String from your backend
                     confidence_colors = {"High": "🟢", "Medium": "🟡", "Low": "🔴"}
                     color_icon = confidence_colors.get(confidence, "🔵")
                     st.metric("Confidence", f"{color_icon} {confidence}")
@@ -420,7 +416,7 @@ def batch_analysis_page():
                 status_text = st.empty()
                 
                 with st.spinner("🤖 Analyzing job postings..."):
-                    # For demonstration, we'll process in smaller batches
+                    # Process in smaller batches
                     batch_size = 10
                     all_results = []
                     
@@ -523,7 +519,7 @@ def model_info_page():
     """Model information and performance page"""
     st.markdown('<h1 class="main-header">🧠 Model Information</h1>', unsafe_allow_html=True)
     
-    # Model performance metrics
+    # Model performance metrics - Match your actual results
     st.subheader("📊 Model Performance")
     
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -538,51 +534,55 @@ def model_info_page():
     with col5:
         st.metric("ROC-AUC", "97.65%", "↑ 0.2%")
     
-    # Model architecture
+    # Model architecture - Match your ImbalanceAwareNeuralNetwork
     st.subheader("🏗️ Model Architecture")
     st.markdown("""
-    **Neural Network Built from Scratch**
-    - **Architecture**: Input Layer → 32 Neurons → 16 Neurons → Output Layer
-    - **Activation Functions**: ReLU (hidden layers), Sigmoid (output layer)
-    - **Regularization**: 70% Dropout + L2 Regularization (λ=0.05)
+    **ImbalanceAwareNeuralNetwork Built from Scratch**
+    - **Architecture**: Input Layer → 128 Neurons → 64 Neurons → Output Layer
+    - **Activation Functions**: Leaky ReLU (hidden layers), Sigmoid (output layer)
+    - **Regularization**: 63% Dropout + L2 Regularization (λ=0.05)
     - **Optimization**: Gradient Descent with Early Stopping
     - **Training Data**: 17,000+ real job postings from Kaggle
+    - **Learning Rate**: 0.0001 (optimized for stability)
     """)
     
-    # Feature engineering
+    # Feature engineering - Match your ImbalanceAwarePreprocessor
     st.subheader("🔧 Feature Engineering")
     st.markdown("""
     **Text Processing**:
     - TF-IDF Vectorization (2000 features, 1-2 grams)
-    - Text cleaning and normalization
-    - Suspicious keyword detection
+    - Advanced text cleaning (URLs, emails, phone numbers)
+    - Weighted text combination (Title×3, Description×2)
     
     **Categorical Features**:
     - Employment type, experience level, education
     - Industry and job function encoding
+    - High cardinality handling (top 30 categories)
     
     **Numerical Features**:
-    - Text length metrics
-    - Company logo presence
-    - Remote work indicators
+    - Text length metrics and word counts
+    - Caps ratio and exclamation count
+    - Company profile presence indicators
     """)
     
-    # Training details
+    # Training details - Match your actual implementation
     st.subheader("🎯 Training Details")
     st.markdown("""
     **Class Imbalance Handling**:
     - SMOTE (Synthetic Minority Oversampling Technique)
     - Balanced 50-50 class distribution after preprocessing
+    - Original ratio: 14.5:1 → Balanced: 1:1
     
     **Validation Strategy**:
-    - Stratified train/validation/test split (60/20/20)
-    - 5-fold cross-validation
-    - Early stopping based on F1-score
+    - Stratified train/validation split
+    - Early stopping based on F1-score (patience=10)
+    - Cross-validation for robust performance estimation
     
     **Performance Optimization**:
     - Learning rate: 0.0001
-    - Batch size: 32
+    - Batch size: 64
     - Strong regularization to prevent overfitting
+    - Gradient clipping for stability
     """)
 
 def main():
@@ -606,7 +606,7 @@ def main():
         ["Single Prediction", "Batch Analysis", "Model Information"]
     )
     
-    # Model performance in sidebar
+    # Model performance in sidebar - Your actual results
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📊 Quick Stats")
     st.sidebar.metric("Accuracy", "91.15%")
@@ -617,7 +617,7 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("### ℹ️ About")
     st.sidebar.info(
-        "This tool uses a neural network built from scratch to detect "
+        "This tool uses an ImbalanceAwareNeuralNetwork built from scratch to detect "
         "fraudulent job postings. Trained on 17,000+ real job postings "
         "with 95% recall in catching fake jobs."
     )
@@ -630,13 +630,31 @@ def main():
     elif page == "Model Information":
         model_info_page()
     
-    # Footer
+    # Footer with LinkedIn and GitHub links
     st.markdown("---")
-    st.markdown(
-        "**Built with ❤️ using Neural Networks from scratch** | "
-        "**Powered by FastAPI + Streamlit** | "
-        "**Model trained on Kaggle dataset**"
-    )
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown(
+            """
+            <div style='text-align: center;'>
+                <p><strong>Built with ❤️ using Neural Networks from scratch</strong></p>
+                <p><strong>Powered by FastAPI + Streamlit | Model trained on Kaggle dataset</strong></p>
+                <br>
+                <p>👨‍💻 <strong>Developed by Jai Chaudhary</strong></p>
+                <p>
+                    <a href="https://www.linkedin.com/in/jai-chaudhary-54bb86221/" target="_blank" 
+                       style="color: #0077B5; text-decoration: none; font-weight: bold; margin-right: 20px;">
+                       🔗 LinkedIn
+                    </a>
+                    <a href="https://github.com/jcb03/Fake-Job-Posting-Neural-Network-fast-api-with-deployment" target="_blank" 
+                       style="color: #333; text-decoration: none; font-weight: bold;">
+                       📁 GitHub Repository
+                    </a>
+                </p>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
 
 if __name__ == "__main__":
     main()

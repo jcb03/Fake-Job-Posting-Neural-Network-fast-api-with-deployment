@@ -1,12 +1,16 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-import pickle  # Changed from joblib to pickle
+import pickle
 import numpy as np
 import pandas as pd
 from typing import Optional, Dict, Any
 import logging
 import os
+
+# CRITICAL: Import your custom classes to fix pickle error
+from model import ImbalanceAwareNeuralNetwork
+from preprocessor import ImbalanceAwarePreprocessor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -18,44 +22,77 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware for Streamlit communication
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8501"],  # Streamlit default port
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Load trained models
-try:
-    # Use project structure
-    models_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models')
+# Global variables for models
+neural_network = None
+preprocessor = None
+
+@app.on_event("startup")
+async def load_models():
+    """Load models on startup"""
+    global neural_network, preprocessor
     
-    
-    
-    # Load using pickle (same method you used to save)
-    with open(os.path.join(models_dir, 'neural_network.pkl'), 'rb') as f:
-        neural_network = pickle.load(f)
-    
-    with open(os.path.join(models_dir, 'preprocessor.pkl'), 'rb') as f:
-        preprocessor = pickle.load(f)
-    
-    logger.info("Models loaded successfully")
-    logger.info(f"Model type: {type(neural_network)}")
-    logger.info(f"Preprocessor type: {type(preprocessor)}")
-    
-except Exception as e:
-    logger.error(f"Error loading models: {e}")
-    neural_network = None
-    preprocessor = None
+    try:
+        # Find models directory (separate from backend)
+        possible_paths = [
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models'),  # ../models from backend
+            os.path.join(os.getcwd(), 'models'),  # models from current directory
+            'models',  # direct path
+            '../models'  # relative path
+        ]
+        
+        models_dir = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                models_dir = path
+                logger.info(f"Found models directory at: {os.path.abspath(path)}")
+                break
+        
+        if not models_dir:
+            raise FileNotFoundError(f"Models directory not found. Tried paths: {possible_paths}")
+        
+        neural_network_path = os.path.join(models_dir, 'neural_network.pkl')
+        preprocessor_path = os.path.join(models_dir, 'preprocessor.pkl')
+        
+        # Check if files exist
+        if not os.path.exists(neural_network_path):
+            raise FileNotFoundError(f"Neural network model not found at: {neural_network_path}")
+        if not os.path.exists(preprocessor_path):
+            raise FileNotFoundError(f"Preprocessor not found at: {preprocessor_path}")
+        
+        # Load using pickle (imports above should fix the issue)
+        with open(neural_network_path, 'rb') as f:
+            neural_network = pickle.load(f)
+        
+        with open(preprocessor_path, 'rb') as f:
+            preprocessor = pickle.load(f)
+        
+        logger.info("✅ Models loaded successfully!")
+        logger.info(f"Models loaded from: {os.path.abspath(models_dir)}")
+        logger.info(f"Model type: {type(neural_network)}")
+        logger.info(f"Preprocessor type: {type(preprocessor)}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error loading models: {e}")
+        logger.error(f"Current working directory: {os.getcwd()}")
+        logger.error(f"Script directory: {os.path.dirname(__file__)}")
+        neural_network = None
+        preprocessor = None
 
 class JobPostingRequest(BaseModel):
     title: str = Field(..., description="Job title")
     description: str = Field(..., description="Job description")
-    company_profile: Optional[str] = Field(None, description="Company profile")
-    requirements: Optional[str] = Field(None, description="Job requirements")
-    benefits: Optional[str] = Field(None, description="Job benefits")
+    company_profile: Optional[str] = Field("", description="Company profile")
+    requirements: Optional[str] = Field("", description="Job requirements")
+    benefits: Optional[str] = Field("", description="Job benefits")
     location: Optional[str] = Field("", description="Job location")
     employment_type: Optional[str] = Field("", description="Employment type")
     required_experience: Optional[str] = Field("", description="Required experience")
@@ -71,7 +108,11 @@ class PredictionResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"message": "Fake Job Detection API", "status": "active"}
+    return {
+        "message": "Fake Job Detection API", 
+        "status": "active",
+        "model_loaded": neural_network is not None
+    }
 
 @app.get("/health")
 async def health_check():
@@ -98,7 +139,7 @@ async def predict_job_posting(job: JobPostingRequest):
         # Preprocess data
         X_processed = preprocessor.transform(job_data)
         
-        # Make prediction
+        # Make prediction - FIXED: Added [0] indexing for single values
         prediction = neural_network.predict(X_processed)[0]
         probability = neural_network.predict_proba(X_processed)[0]
         
@@ -171,7 +212,7 @@ async def batch_predict(jobs: list[JobPostingRequest]):
             job_dict['fraudulent'] = 0  # Dummy value, not used in prediction
             job_data = pd.DataFrame([job_dict])
             
-            # Preprocess and predict
+            # Preprocess and predict - FIXED: Added [0] indexing
             X_processed = preprocessor.transform(job_data)
             prediction = neural_network.predict(X_processed)[0]
             probability = neural_network.predict_proba(X_processed)[0]
@@ -188,6 +229,8 @@ async def batch_predict(jobs: list[JobPostingRequest]):
         logger.error(f"Batch prediction error: {e}")
         raise HTTPException(status_code=500, detail=f"Batch prediction failed: {str(e)}")
 
+# For both local and Render deployment
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

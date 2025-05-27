@@ -9,7 +9,7 @@ import os
 
 # Page configuration
 st.set_page_config(
-    page_title="Fake Job Detector",
+    page_title="JobDetective AI",
     page_icon="🕵️",
     layout="wide",
     initial_sidebar_state="expanded"

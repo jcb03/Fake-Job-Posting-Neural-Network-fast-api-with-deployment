@@ -638,7 +638,7 @@ def main():
             """
             <div style='text-align: center;'>
                 <p><strong>Built with ❤️ using Neural Networks from scratch</strong></p>
-                <p><strong>Powered by FastAPI + Streamlit | Model trained on Kaggle dataset</strong></p>
+                <p><strong>Powered by FastAPI + Streamlit</strong> | Model trained on Fake Job Posting Dataset</p>
                 <br>
                 <p>👨‍💻 <strong>Developed by Jai Chaudhary</strong></p>
                 <p>

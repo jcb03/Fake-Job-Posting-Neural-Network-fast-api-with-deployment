@@ -64,7 +64,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # API Configuration 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000") 
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 def check_api_health():
     """Check if the API is running"""

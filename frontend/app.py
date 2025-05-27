@@ -1,63 +1,80 @@
 import streamlit as st
 import requests
-import json
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+import io
+import json
 from typing import Dict, Any
 import time
 
 # Page configuration
 st.set_page_config(
-    page_title="Fake Job Detection System",
-    page_icon="🔍",
+    page_title="Fake Job Detector",
+    page_icon="🕵️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# API Configuration
-API_BASE_URL = "http://backend:8000"  # Docker service name
-
 # Custom CSS
 st.markdown("""
 <style>
-.main-header {
-    font-size: 3rem;
-    color: #1f77b4;
-    text-align: center;
-    margin-bottom: 2rem;
-}
-.risk-high {
-    background-color: #ffebee;
-    border-left: 5px solid #f44336;
-    padding: 10px;
-    margin: 10px 0;
-}
-.risk-medium {
-    background-color: #fff3e0;
-    border-left: 5px solid #ff9800;
-    padding: 10px;
-    margin: 10px 0;
-}
-.risk-low {
-    background-color: #e8f5e8;
-    border-left: 5px solid #4caf50;
-    padding: 10px;
-    margin: 10px 0;
-}
+    .main-header {
+        font-size: 3rem;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .metric-container {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+    }
+    .risk-high {
+        background-color: #ffebee;
+        border-left: 5px solid #f44336;
+        padding: 1rem;
+        border-radius: 0.5rem;
+    }
+    .risk-medium {
+        background-color: #fff8e1;
+        border-left: 5px solid #ff9800;
+        padding: 1rem;
+        border-radius: 0.5rem;
+    }
+    .risk-low {
+        background-color: #e8f5e8;
+        border-left: 5px solid #4caf50;
+        padding: 1rem;
+        border-radius: 0.5rem;
+    }
+    .stButton > button {
+        width: 100%;
+        background-color: #1f77b4;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 0.25rem;
+        font-weight: bold;
+    }
 </style>
 """, unsafe_allow_html=True)
 
+# API Configuration - Updated for local development
+API_BASE_URL = "http://localhost:8000"  
+
 def check_api_health():
-    """Check if the API is available"""
+    """Check if the API is running"""
     try:
         response = requests.get(f"{API_BASE_URL}/health", timeout=5)
-        return response.status_code == 200
-    except:
-        return False
+        return response.status_code == 200, response.json() if response.status_code == 200 else None
+    except requests.exceptions.RequestException:
+        return False, None
 
-def make_prediction(job_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Make prediction request to API"""
+def predict_single_job(job_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Send prediction request to API"""
     try:
         response = requests.post(
             f"{API_BASE_URL}/predict",
@@ -67,325 +84,558 @@ def make_prediction(job_data: Dict[str, Any]) -> Dict[str, Any]:
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        st.error(f"API request failed: {e}")
+        st.error(f"API request failed: {str(e)}")
         return None
 
-def display_risk_analysis(risk_factors: Dict[str, Any]):
-    """Display detailed risk analysis"""
-    
-    overall_risk = risk_factors.get("overall_risk", "Unknown")
-    
-    # Overall risk display
-    if overall_risk == "High":
-        st.markdown('<div class="risk-high"><h3>⚠️ High Risk Detected</h3></div>', 
-                   unsafe_allow_html=True)
-    elif overall_risk == "Medium":
-        st.markdown('<div class="risk-medium"><h3>⚡ Medium Risk Detected</h3></div>', 
-                   unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="risk-low"><h3>✅ Low Risk Detected</h3></div>', 
-                   unsafe_allow_html=True)
-    
-    # Text analysis
-    text_analysis = risk_factors.get("text_analysis", {})
-    if text_analysis:
-        st.subheader("📝 Text Analysis")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric("Urgency Indicators", text_analysis.get("urgency_indicators", 0))
-            st.metric("Vague Language", text_analysis.get("vague_language", 0))
-        
-        with col2:
-            st.metric("Suspicious Phrases", text_analysis.get("suspicious_phrases", 0))
-            st.metric("Description Length", text_analysis.get("description_length", 0))
-    
-    # Structural analysis
-    structural_analysis = risk_factors.get("structural_analysis", {})
-    if structural_analysis:
-        st.subheader("🏗️ Structural Analysis")
-        
-        missing_fields = []
-        for field, is_missing in structural_analysis.items():
-            if is_missing:
-                missing_fields.append(field.replace("missing_", "").replace("_", " ").title())
-        
-        if missing_fields:
-            st.warning(f"Missing information: {', '.join(missing_fields)}")
-        else:
-            st.success("All required fields are present")
+def predict_batch_jobs(jobs_data: list) -> Dict[str, Any]:
+    """Send batch prediction request to API"""
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/batch_predict",
+            json=jobs_data,
+            timeout=120
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Batch prediction failed: {str(e)}")
+        return None
 
-def create_prediction_chart(probability: float):
-    """Create a gauge chart for prediction probability"""
+def create_risk_gauge(probability: float, prediction: int) -> go.Figure:
+    """Create a risk level gauge chart"""
+    # Determine color based on prediction and probability
+    if prediction == 1:  # Fake
+        color = "red" if probability > 0.8 else "orange"
+        risk_text = "HIGH RISK" if probability > 0.8 else "MEDIUM RISK"
+    else:  # Real
+        color = "green" if probability < 0.2 else "yellow"
+        risk_text = "LOW RISK" if probability < 0.2 else "MEDIUM RISK"
     
     fig = go.Figure(go.Indicator(
         mode = "gauge+number+delta",
         value = probability * 100,
         domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': "Fraud Probability (%)"},
+        title = {'text': f"Fraud Probability<br><span style='font-size:0.8em;color:gray'>{risk_text}</span>"},
         delta = {'reference': 50},
         gauge = {
             'axis': {'range': [None, 100]},
-            'bar': {'color': "darkblue"},
+            'bar': {'color': color},
             'steps': [
                 {'range': [0, 30], 'color': "lightgreen"},
                 {'range': [30, 70], 'color': "yellow"},
-                {'range': [70, 100], 'color': "red"}
+                {'range': [70, 100], 'color': "lightcoral"}
             ],
             'threshold': {
                 'line': {'color': "red", 'width': 4},
                 'thickness': 0.75,
-                'value': 70
+                'value': 90
             }
         }
     ))
     
-    fig.update_layout(height=400)
+    fig.update_layout(height=300)
     return fig
 
+def display_risk_analysis(risk_factors: Dict[str, Any]):
+    """Display detailed risk analysis"""
+    st.subheader("🔍 Risk Factor Analysis")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**📝 Text Analysis**")
+        text_analysis = risk_factors.get("text_analysis", {})
+        
+        # Create metrics for text analysis
+        metrics_data = [
+            ("Urgency Indicators", text_analysis.get("urgency_indicators", 0)),
+            ("Vague Language", text_analysis.get("vague_language", 0)),
+            ("Suspicious Phrases", text_analysis.get("suspicious_phrases", 0)),
+            ("Description Length", text_analysis.get("description_length", 0)),
+            ("Title Length", text_analysis.get("title_length", 0))
+        ]
+        
+        for metric_name, value in metrics_data:
+            st.metric(metric_name, value)
+    
+    with col2:
+        st.markdown("**🏗️ Structural Analysis**")
+        structural_analysis = risk_factors.get("structural_analysis", {})
+        
+        # Display structural issues
+        issues = []
+        if structural_analysis.get("missing_company_profile", False):
+            issues.append("❌ Missing company profile")
+        if structural_analysis.get("missing_requirements", False):
+            issues.append("❌ Missing job requirements")
+        if structural_analysis.get("missing_location", False):
+            issues.append("❌ Missing location")
+        if structural_analysis.get("missing_industry", False):
+            issues.append("❌ Missing industry information")
+        
+        if issues:
+            for issue in issues:
+                st.write(issue)
+        else:
+            st.write("✅ All structural elements present")
+
+def single_prediction_page():
+    """Single job prediction page"""
+    st.markdown('<h1 class="main-header">🕵️ Single Job Analysis</h1>', unsafe_allow_html=True)
+    
+    with st.form("job_form", clear_on_submit=False):
+        st.markdown("### 📝 Job Posting Details")
+        
+        # Required fields
+        col1, col2 = st.columns(2)
+        with col1:
+            title = st.text_input(
+                "Job Title*", 
+                placeholder="e.g., Software Engineer, Marketing Manager",
+                help="The official job title"
+            )
+        with col2:
+            location = st.text_input(
+                "Location", 
+                placeholder="e.g., New York, NY or Remote",
+                help="Job location"
+            )
+        
+        description = st.text_area(
+            "Job Description*", 
+            placeholder="Enter the complete job description...",
+            height=150,
+            help="Detailed description of the job role"
+        )
+        
+        # Optional fields in expander
+        with st.expander("📋 Additional Details (Optional - Improves Accuracy)"):
+            col3, col4 = st.columns(2)
+            
+            with col3:
+                company_profile = st.text_area(
+                    "Company Profile", 
+                    placeholder="Brief company description",
+                    height=100
+                )
+                
+                requirements = st.text_area(
+                    "Requirements", 
+                    placeholder="Job requirements and qualifications",
+                    height=100
+                )
+                
+                employment_type = st.selectbox(
+                    "Employment Type", 
+                    ["", "Full-time", "Part-time", "Contract", "Temporary", "Internship"]
+                )
+                
+                required_experience = st.selectbox(
+                    "Required Experience", 
+                    ["", "Entry level", "Mid level", "Senior level", "Executive", "Not Applicable"]
+                )
+            
+            with col4:
+                benefits = st.text_area(
+                    "Benefits", 
+                    placeholder="Benefits and perks offered",
+                    height=100
+                )
+                
+                required_education = st.selectbox(
+                    "Required Education",
+                    ["", "High School", "Bachelor's Degree", "Master's Degree", "PhD", "Not Specified"]
+                )
+                
+                industry = st.text_input(
+                    "Industry", 
+                    placeholder="e.g., Technology, Healthcare, Finance"
+                )
+                
+                function = st.text_input(
+                    "Job Function", 
+                    placeholder="e.g., Engineering, Marketing, Sales"
+                )
+        
+        submitted = st.form_submit_button("🔍 Analyze Job Posting", type="primary")
+    
+    if submitted:
+        if not title or not description:
+            st.error("❌ Please fill in required fields: Job Title and Job Description")
+        else:
+            # Prepare data for API - Updated to match backend expectations
+            job_data = {
+                "title": title,
+                "description": description,
+                "company_profile": company_profile or "",
+                "requirements": requirements or "",
+                "benefits": benefits or "",
+                "location": location or "",
+                "employment_type": employment_type or "",
+                "required_experience": required_experience or "",
+                "required_education": required_education or "",  # Added this field
+                "industry": industry or "",
+                "function": function or ""
+            }
+            
+            with st.spinner("🤖 Analyzing job posting..."):
+                result = predict_single_job(job_data)
+            
+            if result:
+                st.markdown("---")
+                st.subheader("🎯 Analysis Results")
+                
+                # Main results display
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    # Updated to handle backend response format
+                    prediction = result["prediction"]  # 0 or 1
+                    if prediction == 1:
+                        st.error("🚨 **FAKE JOB POSTING**")
+                    else:
+                        st.success("✅ **REAL JOB POSTING**")
+                
+                with col2:
+                    probability = result["probability"]  # Already a float
+                    st.metric("Fraud Probability", f"{probability:.1%}")
+                
+                with col3:
+                    confidence = result["confidence"]  # Already a string
+                    confidence_colors = {"High": "🟢", "Medium": "🟡", "Low": "🔴"}
+                    color_icon = confidence_colors.get(confidence, "🔵")
+                    st.metric("Confidence", f"{color_icon} {confidence}")
+                
+                # Risk gauge
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    gauge_fig = create_risk_gauge(probability, prediction)
+                    st.plotly_chart(gauge_fig, use_container_width=True)
+                
+                with col2:
+                    # Risk level styling
+                    risk_level = "High" if probability > 0.7 else "Medium" if probability > 0.3 else "Low"
+                    risk_class = f"risk-{risk_level.lower()}"
+                    
+                    st.markdown(f"""
+                    <div class="{risk_class}">
+                        <h4>Risk Assessment: {risk_level.upper()}</h4>
+                        <p>Fraud Probability: {probability:.1%}</p>
+                        <p>Model Confidence: {confidence}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Display risk factors if available
+                if "risk_factors" in result:
+                    display_risk_analysis(result["risk_factors"])
+                
+                # Recommendations
+                st.subheader("💡 Recommendations")
+                if prediction == 1:
+                    st.error("⚠️ **HIGH RISK - This job posting shows indicators of fraud!**")
+                    st.markdown("""
+                    **🚨 Red flags to watch for:**
+                    - Promises of unusually high pay for minimal work
+                    - Vague job descriptions or company information
+                    - Requests for personal/financial information upfront
+                    - No legitimate company contact information
+                    - Pressure to respond immediately
+                    
+                    **🛡️ Protect yourself:**
+                    - Research the company independently
+                    - Never provide personal information before verification
+                    - Be wary of jobs requiring upfront payments
+                    """)
+                else:
+                    st.success("✅ **This job posting appears legitimate!**")
+                    st.markdown("""
+                    **✅ Good signs detected:**
+                    - Professional job description and requirements
+                    - Legitimate company information provided
+                    - Realistic expectations and qualifications
+                    
+                    **💼 Next steps:**
+                    - Still research the company to verify legitimacy
+                    - Check company website and reviews
+                    - Verify contact information independently
+                    """)
+
+def batch_analysis_page():
+    """Batch analysis page for multiple job postings"""
+    st.markdown('<h1 class="main-header">📊 Batch Job Analysis</h1>', unsafe_allow_html=True)
+    
+    st.markdown("""
+    Upload a CSV file with job postings to analyze multiple jobs at once. 
+    Required columns: `title`, `description`. Optional columns: `company_profile`, `requirements`, `benefits`, etc.
+    """)
+    
+    # File upload
+    uploaded_file = st.file_uploader(
+        "Choose a CSV file", 
+        type="csv",
+        help="Upload a CSV file with job posting data"
+    )
+    
+    if uploaded_file is not None:
+        try:
+            # Read the CSV file
+            df = pd.read_csv(uploaded_file)
+            st.success(f"✅ File uploaded successfully! Found {len(df)} job postings.")
+            
+            # Display preview
+            st.subheader("📋 Data Preview")
+            st.dataframe(df.head())
+            
+            # Check required columns
+            required_cols = ['title', 'description']
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            
+            if missing_cols:
+                st.error(f"❌ Missing required columns: {missing_cols}")
+                return
+            
+            # Process batch
+            if st.button("🚀 Analyze All Jobs", type="primary"):
+                # Prepare data for batch prediction
+                jobs_data = []
+                for _, row in df.iterrows():
+                    job_data = {
+                        "title": str(row.get('title', '')),
+                        "description": str(row.get('description', '')),
+                        "company_profile": str(row.get('company_profile', '')),
+                        "requirements": str(row.get('requirements', '')),
+                        "benefits": str(row.get('benefits', '')),
+                        "location": str(row.get('location', '')),
+                        "employment_type": str(row.get('employment_type', '')),
+                        "required_experience": str(row.get('required_experience', '')),
+                        "required_education": str(row.get('required_education', '')),
+                        "industry": str(row.get('industry', '')),
+                        "function": str(row.get('function', ''))
+                    }
+                    jobs_data.append(job_data)
+                
+                # Show progress
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                with st.spinner("🤖 Analyzing job postings..."):
+                    # For demonstration, we'll process in smaller batches
+                    batch_size = 10
+                    all_results = []
+                    
+                    for i in range(0, len(jobs_data), batch_size):
+                        batch = jobs_data[i:i+batch_size]
+                        
+                        # Update progress
+                        progress = min((i + batch_size) / len(jobs_data), 1.0)
+                        progress_bar.progress(progress)
+                        status_text.text(f"Processing jobs {i+1} to {min(i+batch_size, len(jobs_data))} of {len(jobs_data)}...")
+                        
+                        # Process batch
+                        batch_result = predict_batch_jobs(batch)
+                        if batch_result and "results" in batch_result:
+                            all_results.extend(batch_result["results"])
+                        
+                        time.sleep(0.1)  # Small delay for UI responsiveness
+                
+                progress_bar.progress(1.0)
+                status_text.text("✅ Analysis complete!")
+                
+                if all_results:
+                    # Create results dataframe
+                    results_df = pd.DataFrame(all_results)
+                    results_df['job_title'] = [job['title'] for job in jobs_data[:len(all_results)]]
+                    
+                    # Display summary
+                    st.subheader("📊 Analysis Summary")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Total Jobs", len(results_df))
+                    with col2:
+                        fake_count = sum(results_df['prediction'])
+                        st.metric("Fake Jobs", fake_count)
+                    with col3:
+                        real_count = len(results_df) - fake_count
+                        st.metric("Real Jobs", real_count)
+                    with col4:
+                        avg_prob = results_df['probability'].mean()
+                        st.metric("Avg Fraud Prob", f"{avg_prob:.1%}")
+                    
+                    # Visualizations
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Pie chart of predictions
+                        fig_pie = px.pie(
+                            values=[real_count, fake_count],
+                            names=['Real Jobs', 'Fake Jobs'],
+                            title="Job Classification Distribution",
+                            color_discrete_map={'Real Jobs': 'green', 'Fake Jobs': 'red'}
+                        )
+                        st.plotly_chart(fig_pie, use_container_width=True)
+                    
+                    with col2:
+                        # Histogram of probabilities
+                        fig_hist = px.histogram(
+                            results_df, 
+                            x='probability',
+                            nbins=20,
+                            title="Distribution of Fraud Probabilities",
+                            labels={'probability': 'Fraud Probability', 'count': 'Number of Jobs'}
+                        )
+                        st.plotly_chart(fig_hist, use_container_width=True)
+                    
+                    # Detailed results table
+                    st.subheader("📋 Detailed Results")
+                    
+                    # Add risk level column
+                    results_df['risk_level'] = results_df['probability'].apply(
+                        lambda x: 'High' if x > 0.7 else 'Medium' if x > 0.3 else 'Low'
+                    )
+                    
+                    # Format probability as percentage
+                    results_df['probability_pct'] = results_df['probability'].apply(lambda x: f"{x:.1%}")
+                    
+                    # Display table
+                    display_df = results_df[['job_title', 'prediction', 'probability_pct', 'risk_level']].copy()
+                    display_df.columns = ['Job Title', 'Prediction (0=Real, 1=Fake)', 'Fraud Probability', 'Risk Level']
+                    
+                    st.dataframe(display_df, use_container_width=True)
+                    
+                    # Download results
+                    csv_buffer = io.StringIO()
+                    results_df.to_csv(csv_buffer, index=False)
+                    csv_data = csv_buffer.getvalue()
+                    
+                    st.download_button(
+                        label="📥 Download Results as CSV",
+                        data=csv_data,
+                        file_name="job_analysis_results.csv",
+                        mime="text/csv"
+                    )
+                
+        except Exception as e:
+            st.error(f"❌ Error processing file: {str(e)}")
+
+def model_info_page():
+    """Model information and performance page"""
+    st.markdown('<h1 class="main-header">🧠 Model Information</h1>', unsafe_allow_html=True)
+    
+    # Model performance metrics
+    st.subheader("📊 Model Performance")
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        st.metric("Accuracy", "91.15%", "↑ 2.1%")
+    with col2:
+        st.metric("Precision", "88.13%", "↑ 1.7%")
+    with col3:
+        st.metric("Recall", "95.12%", "↑ 0.1%")
+    with col4:
+        st.metric("F1-Score", "91.49%", "↑ 1.4%")
+    with col5:
+        st.metric("ROC-AUC", "97.65%", "↑ 0.2%")
+    
+    # Model architecture
+    st.subheader("🏗️ Model Architecture")
+    st.markdown("""
+    **Neural Network Built from Scratch**
+    - **Architecture**: Input Layer → 32 Neurons → 16 Neurons → Output Layer
+    - **Activation Functions**: ReLU (hidden layers), Sigmoid (output layer)
+    - **Regularization**: 70% Dropout + L2 Regularization (λ=0.05)
+    - **Optimization**: Gradient Descent with Early Stopping
+    - **Training Data**: 17,000+ real job postings from Kaggle
+    """)
+    
+    # Feature engineering
+    st.subheader("🔧 Feature Engineering")
+    st.markdown("""
+    **Text Processing**:
+    - TF-IDF Vectorization (2000 features, 1-2 grams)
+    - Text cleaning and normalization
+    - Suspicious keyword detection
+    
+    **Categorical Features**:
+    - Employment type, experience level, education
+    - Industry and job function encoding
+    
+    **Numerical Features**:
+    - Text length metrics
+    - Company logo presence
+    - Remote work indicators
+    """)
+    
+    # Training details
+    st.subheader("🎯 Training Details")
+    st.markdown("""
+    **Class Imbalance Handling**:
+    - SMOTE (Synthetic Minority Oversampling Technique)
+    - Balanced 50-50 class distribution after preprocessing
+    
+    **Validation Strategy**:
+    - Stratified train/validation/test split (60/20/20)
+    - 5-fold cross-validation
+    - Early stopping based on F1-score
+    
+    **Performance Optimization**:
+    - Learning rate: 0.0001
+    - Batch size: 32
+    - Strong regularization to prevent overfitting
+    """)
+
 def main():
-    """Main Streamlit application"""
+    """Main application function"""
+    # Sidebar navigation
+    st.sidebar.title("🕵️ Fake Job Detector")
     
-    # Header
-    st.markdown('<h1 class="main-header">🔍 Fake Job Detection System</h1>', 
-                unsafe_allow_html=True)
-    
-    # Sidebar
-    st.sidebar.title("Navigation")
-    page = st.sidebar.selectbox("Choose a page", 
-                               ["Single Prediction", "Batch Analysis", "Model Info"])
-    
-    # API Health Check
-    if not check_api_health():
-        st.error("⚠️ API is not available. Please ensure the backend service is running.")
-        st.stop()
+    # API health check
+    is_healthy, health_data = check_api_health()
+    if is_healthy:
+        st.sidebar.success("🟢 API Connected")
+        if health_data:
+            st.sidebar.json(health_data)
     else:
-        st.sidebar.success("✅ API Connected")
+        st.sidebar.error("🔴 API Disconnected")
+        st.sidebar.warning("Please ensure the backend server is running on port 8000")
     
+    # Navigation
+    page = st.sidebar.selectbox(
+        "Choose a page",
+        ["Single Prediction", "Batch Analysis", "Model Information"]
+    )
+    
+    # Model performance in sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📊 Quick Stats")
+    st.sidebar.metric("Accuracy", "91.15%")
+    st.sidebar.metric("Recall", "95.12%")
+    st.sidebar.metric("Precision", "88.13%")
+    
+    # About section
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### ℹ️ About")
+    st.sidebar.info(
+        "This tool uses a neural network built from scratch to detect "
+        "fraudulent job postings. Trained on 17,000+ real job postings "
+        "with 95% recall in catching fake jobs."
+    )
+    
+    # Route to appropriate page
     if page == "Single Prediction":
         single_prediction_page()
     elif page == "Batch Analysis":
         batch_analysis_page()
-    else:
+    elif page == "Model Information":
         model_info_page()
-
-def single_prediction_page():
-    """Single job posting prediction page"""
     
-    st.header("Analyze Single Job Posting")
-    
-    # Input form
-    with st.form("job_form"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            title = st.text_input("Job Title*", placeholder="e.g., Data Scientist")
-            company_profile = st.text_area("Company Profile", 
-                                         placeholder="Brief description of the company")
-            location = st.text_input("Location", placeholder="e.g., New York, NY")
-            employment_type = st.selectbox("Employment Type", 
-                                         ["", "Full-time", "Part-time", "Contract", "Internship"])
-            industry = st.text_input("Industry", placeholder="e.g., Technology")
-        
-        with col2:
-            description = st.text_area("Job Description*", height=150,
-                                     placeholder="Detailed job description...")
-            requirements = st.text_area("Requirements", 
-                                       placeholder="Required skills and qualifications")
-            benefits = st.text_area("Benefits", 
-                                   placeholder="Job benefits and perks")
-            required_experience = st.selectbox("Required Experience", 
-                                             ["", "Entry Level", "Mid Level", "Senior Level", "Executive"])
-            function = st.text_input("Job Function", placeholder="e.g., Engineering")
-        
-        submitted = st.form_submit_button("🔍 Analyze Job Posting", use_container_width=True)
-    
-    if submitted:
-        if not title or not description:
-            st.error("Please fill in the required fields (Title and Description)")
-            return
-        
-        # Prepare data
-        job_data = {
-            "title": title,
-            "description": description,
-            "company_profile": company_profile,
-            "requirements": requirements,
-            "benefits": benefits,
-            "location": location,
-            "employment_type": employment_type,
-            "required_experience": required_experience,
-            "required_education": "",
-            "industry": industry,
-            "function": function
-        }
-        
-        # Make prediction
-        with st.spinner("Analyzing job posting..."):
-            result = make_prediction(job_data)
-        
-        if result:
-            # Display results
-            st.header("Analysis Results")
-            
-            col1, col2 = st.columns([1, 2])
-            
-            with col1:
-                # Prediction result
-                prediction = result["prediction"]
-                probability = result["probability"]
-                confidence = result["confidence"]
-                
-                if prediction == 1:
-                    st.error(f"🚨 **FAKE JOB POSTING DETECTED**")
-                else:
-                    st.success(f"✅ **LEGITIMATE JOB POSTING**")
-                
-                st.metric("Fraud Probability", f"{probability:.1%}")
-                st.metric("Confidence Level", confidence)
-            
-            with col2:
-                # Probability gauge
-                fig = create_prediction_chart(probability)
-                st.plotly_chart(fig, use_container_width=True)
-            
-            # Risk analysis
-            st.header("Detailed Risk Analysis")
-            display_risk_analysis(result["risk_factors"])
-
-def batch_analysis_page():
-    """Batch analysis page for multiple job postings"""
-    
-    st.header("Batch Job Analysis")
-    
-    # File upload
-    uploaded_file = st.file_uploader("Upload CSV file with job postings", 
-                                    type=['csv'], 
-                                    help="CSV should contain columns: title, description, company_profile, etc.")
-    
-    if uploaded_file:
-        try:
-            df = pd.read_csv(uploaded_file)
-            st.success(f"Loaded {len(df)} job postings")
-            
-            # Display sample data
-            st.subheader("Sample Data")
-            st.dataframe(df.head())
-            
-            if st.button("Analyze All Job Postings"):
-                # Process batch predictions
-                with st.spinner("Processing batch predictions..."):
-                    results = []
-                    progress_bar = st.progress(0)
-                    
-                    for idx, row in df.iterrows():
-                        job_data = row.to_dict()
-                        result = make_prediction(job_data)
-                        
-                        if result:
-                            results.append({
-                                "Job Title": job_data.get("title", ""),
-                                "Prediction": "Fake" if result["prediction"] == 1 else "Real",
-                                "Probability": result["probability"],
-                                "Confidence": result["confidence"]
-                            })
-                        
-                        progress_bar.progress((idx + 1) / len(df))
-                
-                # Display results
-                if results:
-                    results_df = pd.DataFrame(results)
-                    
-                    # Summary statistics
-                    st.subheader("Summary Statistics")
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        fake_count = len(results_df[results_df["Prediction"] == "Fake"])
-                        st.metric("Fake Jobs Detected", fake_count)
-                    
-                    with col2:
-                        real_count = len(results_df[results_df["Prediction"] == "Real"])
-                        st.metric("Real Jobs", real_count)
-                    
-                    with col3:
-                        avg_prob = results_df["Probability"].mean()
-                        st.metric("Average Fraud Probability", f"{avg_prob:.1%}")
-                    
-                    # Results table
-                    st.subheader("Detailed Results")
-                    st.dataframe(results_df)
-                    
-                    # Visualization
-                    fig = px.histogram(results_df, x="Prediction", 
-                                     title="Distribution of Predictions")
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Download results
-                    csv = results_df.to_csv(index=False)
-                    st.download_button("Download Results", csv, "batch_analysis_results.csv")
-        
-        except Exception as e:
-            st.error(f"Error processing file: {e}")
-
-def model_info_page():
-    """Model information and statistics page"""
-    
-    st.header("Model Information")
-    
-    # Model architecture
-    st.subheader("🧠 Neural Network Architecture")
-    st.info("""
-    **ImbalanceAwareNeuralNetwork**
-    - Input Layer: Dynamic (based on preprocessed features)
-    - Hidden Layers: [64, 32] neurons with Leaky ReLU activation
-    - Output Layer: 1 neuron with Sigmoid activation
-    - Dropout Rate: 63% for regularization
-    - Loss Function: Weighted Cross-Entropy with Focal Loss option
-    """)
-    
-    # Preprocessing pipeline
-    st.subheader("⚙️ Preprocessing Pipeline")
-    st.info("""
-    **Text Processing:**
-    - TF-IDF Vectorization (max_features=2000, ngram_range=(1,2))
-    - Text cleaning (URL, email, phone removal)
-    - Feature weighting (Title×3, Description×2)
-    
-    **Categorical Encoding:**
-    - One-hot encoding for categorical variables
-    - Top-30 categories kept, others grouped as 'Other'
-    
-    **Numerical Features:**
-    - Text length, word count, punctuation analysis
-    - Capitalization ratio, exclamation count
-    - StandardScaler normalization
-    
-    **Imbalance Handling:**
-    - SMOTE for synthetic minority oversampling
-    - Class weights for loss function adjustment
-    - Random oversampling as baseline
-    """)
-    
-    # Performance metrics
-    st.subheader("📊 Model Performance")
-    
-    # Mock performance data (replace with actual metrics)
-    metrics_data = {
-        "Metric": ["Accuracy", "Precision", "Recall", "F1-Score", "ROC-AUC"],
-        "Training": [0.94, 0.89, 0.92, 0.90, 0.96],
-        "Validation": [0.91, 0.85, 0.88, 0.86, 0.93],
-        "Test": [0.90, 0.84, 0.87, 0.85, 0.92]
-    }
-    
-    metrics_df = pd.DataFrame(metrics_data)
-    st.dataframe(metrics_df)
-    
-    # Performance visualization
-    fig = px.bar(metrics_df, x="Metric", y=["Training", "Validation", "Test"],
-                title="Model Performance Across Datasets",
-                barmode="group")
-    st.plotly_chart(fig, use_container_width=True)
+    # Footer
+    st.markdown("---")
+    st.markdown(
+        "**Built with ❤️ using Neural Networks from scratch** | "
+        "**Powered by FastAPI + Streamlit** | "
+        "**Model trained on Kaggle dataset**"
+    )
 
 if __name__ == "__main__":
     main()

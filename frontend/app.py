@@ -619,7 +619,7 @@ def model_info_page():
 def main():
     """Main application function"""
     # Sidebar navigation
-    st.sidebar.title("🕵️ Fake Job Detector")
+    st.sidebar.title("🕵️ JobDetective AI")
     
     # API health check
     is_healthy, health_data = check_api_health()
@@ -668,8 +668,8 @@ def main():
         st.markdown(
             """
             <div style='text-align: center;'>
-                <p><strong>Built with ❤️ using Neural Networks from scratch</strong></p>
-                <p><strong>Powered by FastAPI + Streamlit | Model trained on Kaggle dataset</strong></p>
+                <p><strong>Built with ❤️ using Custom Neural Network created by only using NumPy & Pandas</strong></p>
+                <p><strong>Powered by FastAPI + Streamlit & Hosted on Render | Model trained on Kaggle dataset</strong></p>
                 <br>
                 <p>👨‍💻 <strong>Developed by Jai Chaudhary</strong></p>
                 <p>

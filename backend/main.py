@@ -8,10 +8,6 @@ from typing import Optional, Dict, Any
 import logging
 import os
 
-# CRITICAL: Import your custom classes to fix pickle error
-from model import ImbalanceAwareNeuralNetwork
-from preprocessor import ImbalanceAwarePreprocessor
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,58 +31,88 @@ app.add_middleware(
 neural_network = None
 preprocessor = None
 
+# Custom Unpickler
+class CustomUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        if name == 'ImbalanceAwareNeuralNetwork':
+            from model import ImbalanceAwareNeuralNetwork
+            return ImbalanceAwareNeuralNetwork
+        elif name == 'ImbalanceAwarePreprocessor':
+            from preprocessor import ImbalanceAwarePreprocessor
+            return ImbalanceAwarePreprocessor
+        return super().find_class(module, name)
+
 @app.on_event("startup")
 async def load_models():
-    """Load models on startup"""
+    """Load models on startup with enhanced debugging"""
     global neural_network, preprocessor
     
     try:
-        # Find models directory (separate from backend)
+        # Enhanced path detection
+        script_dir = os.path.dirname(__file__)
+        project_root = os.path.dirname(script_dir)
+        
         possible_paths = [
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models'),  # ../models from backend
-            os.path.join(os.getcwd(), 'models'),  # models from current directory
-            'models',  # direct path
-            '../models'  # relative path
+            os.path.join(project_root, 'models'),  # ../models from backend
+            os.path.join(os.getcwd(), 'models'),   # models from current directory
+            'models',                              # direct path
+            '../models',                           # relative path
+            os.path.join(script_dir, '..', 'models')  # explicit relative
         ]
         
+        logger.info(f"Script directory: {script_dir}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+        logger.info(f"Project root: {project_root}")
+        
         models_dir = None
-        for path in possible_paths:
+        for i, path in enumerate(possible_paths):
+            abs_path = os.path.abspath(path)
+            logger.info(f"Trying path {i+1}: {abs_path}")
             if os.path.exists(path):
                 models_dir = path
-                logger.info(f"Found models directory at: {os.path.abspath(path)}")
+                logger.info(f"✅ Found models directory at: {abs_path}")
                 break
+            else:
+                logger.info(f"❌ Path does not exist: {abs_path}")
         
         if not models_dir:
-            raise FileNotFoundError(f"Models directory not found. Tried paths: {possible_paths}")
+            raise FileNotFoundError(f"Models directory not found. Tried paths: {[os.path.abspath(p) for p in possible_paths]}")
         
+        # Check individual files
         neural_network_path = os.path.join(models_dir, 'neural_network.pkl')
         preprocessor_path = os.path.join(models_dir, 'preprocessor.pkl')
         
-        # Check if files exist
-        if not os.path.exists(neural_network_path):
-            raise FileNotFoundError(f"Neural network model not found at: {neural_network_path}")
-        if not os.path.exists(preprocessor_path):
-            raise FileNotFoundError(f"Preprocessor not found at: {preprocessor_path}")
+        logger.info(f"Looking for neural network at: {os.path.abspath(neural_network_path)}")
+        logger.info(f"Looking for preprocessor at: {os.path.abspath(preprocessor_path)}")
         
-        # Load using pickle (imports above should fix the issue)
+        if not os.path.exists(neural_network_path):
+            raise FileNotFoundError(f"Neural network model not found at: {os.path.abspath(neural_network_path)}")
+        if not os.path.exists(preprocessor_path):
+            raise FileNotFoundError(f"Preprocessor not found at: {os.path.abspath(preprocessor_path)}")
+        
+        # Log file sizes
+        nn_size = os.path.getsize(neural_network_path)
+        prep_size = os.path.getsize(preprocessor_path)
+        logger.info(f"Neural network file size: {nn_size} bytes")
+        logger.info(f"Preprocessor file size: {prep_size} bytes")
+        
+        # Load using custom unpickler
         with open(neural_network_path, 'rb') as f:
-            neural_network = pickle.load(f)
+            neural_network = CustomUnpickler(f).load()
         
         with open(preprocessor_path, 'rb') as f:
-            preprocessor = pickle.load(f)
+            preprocessor = CustomUnpickler(f).load()
         
         logger.info("✅ Models loaded successfully!")
-        logger.info(f"Models loaded from: {os.path.abspath(models_dir)}")
         logger.info(f"Model type: {type(neural_network)}")
         logger.info(f"Preprocessor type: {type(preprocessor)}")
         
     except Exception as e:
         logger.error(f"❌ Error loading models: {e}")
-        logger.error(f"Current working directory: {os.getcwd()}")
-        logger.error(f"Script directory: {os.path.dirname(__file__)}")
         neural_network = None
         preprocessor = None
 
+# Rest of your existing code (JobPostingRequest, endpoints, etc.)
 class JobPostingRequest(BaseModel):
     title: str = Field(..., description="Job title")
     description: str = Field(..., description="Job description")
@@ -131,23 +157,17 @@ async def predict_job_posting(job: JobPostingRequest):
         raise HTTPException(status_code=503, detail="Models not loaded")
     
     try:
-        # Convert request to DataFrame (add required fraudulent column)
         job_dict = job.dict()
-        job_dict['fraudulent'] = 0  # Dummy value, not used in prediction
+        job_dict['fraudulent'] = 0
         job_data = pd.DataFrame([job_dict])
         
-        # Preprocess data
         X_processed = preprocessor.transform(job_data)
-        
-        # Make prediction - FIXED: Added [0] indexing for single values
         prediction = neural_network.predict(X_processed)[0]
         probability = neural_network.predict_proba(X_processed)[0]
         
-        # Determine confidence level
         confidence = "High" if probability > 0.8 or probability < 0.2 else \
                     "Medium" if probability > 0.6 or probability < 0.4 else "Low"
         
-        # Analyze risk factors
         risk_factors = analyze_risk_factors(job.dict(), probability)
         
         return PredictionResponse(
@@ -170,11 +190,9 @@ def analyze_risk_factors(job_data: dict, probability: float) -> Dict[str, Any]:
         "structural_analysis": {}
     }
     
-    # Text-based risk factors
     description = job_data.get("description", "").lower()
     title = job_data.get("title", "").lower()
     
-    # Check for suspicious patterns
     urgent_keywords = ["urgent", "immediate", "asap", "quick start"]
     vague_keywords = ["various", "flexible", "any", "all"]
     suspicious_keywords = ["easy money", "work from home", "no experience"]
@@ -187,7 +205,6 @@ def analyze_risk_factors(job_data: dict, probability: float) -> Dict[str, Any]:
         "title_length": len(title)
     }
     
-    # Structural risk factors
     risk_factors["structural_analysis"] = {
         "missing_company_profile": not job_data.get("company_profile"),
         "missing_requirements": not job_data.get("requirements"),
@@ -207,12 +224,10 @@ async def batch_predict(jobs: list[JobPostingRequest]):
     try:
         results = []
         for job in jobs:
-            # Convert to DataFrame (add required fraudulent column)
             job_dict = job.dict()
-            job_dict['fraudulent'] = 0  # Dummy value, not used in prediction
+            job_dict['fraudulent'] = 0
             job_data = pd.DataFrame([job_dict])
             
-            # Preprocess and predict - FIXED: Added [0] indexing
             X_processed = preprocessor.transform(job_data)
             prediction = neural_network.predict(X_processed)[0]
             probability = neural_network.predict_proba(X_processed)[0]
@@ -229,7 +244,6 @@ async def batch_predict(jobs: list[JobPostingRequest]):
         logger.error(f"Batch prediction error: {e}")
         raise HTTPException(status_code=500, detail=f"Batch prediction failed: {str(e)}")
 
-# For both local and Render deployment
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))

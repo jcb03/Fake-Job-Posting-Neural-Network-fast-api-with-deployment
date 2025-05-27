@@ -111,7 +111,7 @@ streamlit run app.py
 ```python
 import requests
 
-response = requests.post("https://your-api-url/predict", json={
+response = requests.post("https://fake-job-detector-api-by-creating-neural.onrender.com", json={
     "title": "Software Engineer",
     "description": "Looking for experienced developer..."
 })

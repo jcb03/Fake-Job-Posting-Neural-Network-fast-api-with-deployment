@@ -31,7 +31,7 @@ app.add_middleware(
 neural_network = None
 preprocessor = None
 
-# Custom Unpickler
+# Custom Unpickler to fix uvicorn pickle issues
 class CustomUnpickler(pickle.Unpickler):
     def find_class(self, module, name):
         if name == 'ImbalanceAwareNeuralNetwork':
@@ -44,20 +44,20 @@ class CustomUnpickler(pickle.Unpickler):
 
 @app.on_event("startup")
 async def load_models():
-    """Load models on startup with enhanced debugging"""
+    """Load models on startup with comprehensive error handling"""
     global neural_network, preprocessor
     
     try:
-        # Enhanced path detection
+        # Multiple path attempts for robust model loading
         script_dir = os.path.dirname(__file__)
         project_root = os.path.dirname(script_dir)
         
         possible_paths = [
-            os.path.join(project_root, 'models'),  # ../models from backend
-            os.path.join(os.getcwd(), 'models'),   # models from current directory
-            'models',                              # direct path
-            '../models',                           # relative path
-            os.path.join(script_dir, '..', 'models')  # explicit relative
+            os.path.join(project_root, 'models'),           # ../models from backend
+            os.path.join(os.getcwd(), 'models'),            # models from current directory
+            os.path.join(script_dir, '..', 'models'),       # explicit relative path
+            'models',                                       # direct path
+            '../models'                                     # relative path
         ]
         
         logger.info(f"Script directory: {script_dir}")
@@ -76,7 +76,9 @@ async def load_models():
                 logger.info(f"❌ Path does not exist: {abs_path}")
         
         if not models_dir:
-            raise FileNotFoundError(f"Models directory not found. Tried paths: {[os.path.abspath(p) for p in possible_paths]}")
+            error_msg = f"Models directory not found. Tried paths: {[os.path.abspath(p) for p in possible_paths]}"
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
         
         # Check individual files
         neural_network_path = os.path.join(models_dir, 'neural_network.pkl')
@@ -90,13 +92,13 @@ async def load_models():
         if not os.path.exists(preprocessor_path):
             raise FileNotFoundError(f"Preprocessor not found at: {os.path.abspath(preprocessor_path)}")
         
-        # Log file sizes
+        # Log file sizes for verification
         nn_size = os.path.getsize(neural_network_path)
         prep_size = os.path.getsize(preprocessor_path)
         logger.info(f"Neural network file size: {nn_size} bytes")
         logger.info(f"Preprocessor file size: {prep_size} bytes")
         
-        # Load using custom unpickler
+        # Load using custom unpickler to handle uvicorn issues
         with open(neural_network_path, 'rb') as f:
             neural_network = CustomUnpickler(f).load()
         
@@ -112,7 +114,6 @@ async def load_models():
         neural_network = None
         preprocessor = None
 
-# Rest of your existing code (JobPostingRequest, endpoints, etc.)
 class JobPostingRequest(BaseModel):
     title: str = Field(..., description="Job title")
     description: str = Field(..., description="Job description")
@@ -153,21 +154,34 @@ async def health_check():
 async def predict_job_posting(job: JobPostingRequest):
     """Predict if a job posting is fake or real"""
     
+    # Check if models are loaded
     if not neural_network or not preprocessor:
+        logger.error("Models not loaded - returning 503")
         raise HTTPException(status_code=503, detail="Models not loaded")
     
     try:
+        # Convert request to DataFrame
         job_dict = job.dict()
-        job_dict['fraudulent'] = 0
+        job_dict['fraudulent'] = 0  # Dummy value
         job_data = pd.DataFrame([job_dict])
         
+        logger.info(f"Processing prediction for job: {job.title}")
+        
+        # Preprocess data
         X_processed = preprocessor.transform(job_data)
+        logger.info(f"Data preprocessed, shape: {X_processed.shape}")
+        
+        # Make prediction - Fixed with [0] indexing
         prediction = neural_network.predict(X_processed)[0]
         probability = neural_network.predict_proba(X_processed)[0]
         
+        logger.info(f"Prediction: {prediction}, Probability: {probability}")
+        
+        # Determine confidence level
         confidence = "High" if probability > 0.8 or probability < 0.2 else \
                     "Medium" if probability > 0.6 or probability < 0.4 else "Low"
         
+        # Analyze risk factors
         risk_factors = analyze_risk_factors(job.dict(), probability)
         
         return PredictionResponse(
@@ -179,6 +193,7 @@ async def predict_job_posting(job: JobPostingRequest):
         
     except Exception as e:
         logger.error(f"Prediction error: {e}")
+        logger.error(f"Error type: {type(e)}")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 def analyze_risk_factors(job_data: dict, probability: float) -> Dict[str, Any]:
@@ -242,7 +257,7 @@ async def batch_predict(jobs: list[JobPostingRequest]):
         
     except Exception as e:
         logger.error(f"Batch prediction error: {e}")
-        raise HTTPException(status_code=500, detail=f"Batch prediction failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Batch predictionfailed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

@@ -29,11 +29,10 @@ app.add_middleware(
 
 # Load trained models
 try:
-    # Option A: Use project structure
+    # Use project structure
     models_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models')
     
-    # Option B: Use your absolute path (uncomment if needed)
-    # models_dir = r'E:\fakejobpostingNNdeployment\models'
+    
     
     # Load using pickle (same method you used to save)
     with open(os.path.join(models_dir, 'neural_network.pkl'), 'rb') as f:

@@ -1,11 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-import joblib
+import pickle  # Changed from joblib to pickle
 import numpy as np
 import pandas as pd
 from typing import Optional, Dict, Any
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,9 +29,23 @@ app.add_middleware(
 
 # Load trained models
 try:
-    neural_network = joblib.load("models/neural_network.pkl")
-    preprocessor = joblib.load("models/preprocessor.pkl")
+    # Option A: Use project structure
+    models_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'models')
+    
+    # Option B: Use your absolute path (uncomment if needed)
+    # models_dir = r'E:\fakejobpostingNNdeployment\models'
+    
+    # Load using pickle (same method you used to save)
+    with open(os.path.join(models_dir, 'neural_network.pkl'), 'rb') as f:
+        neural_network = pickle.load(f)
+    
+    with open(os.path.join(models_dir, 'preprocessor.pkl'), 'rb') as f:
+        preprocessor = pickle.load(f)
+    
     logger.info("Models loaded successfully")
+    logger.info(f"Model type: {type(neural_network)}")
+    logger.info(f"Preprocessor type: {type(preprocessor)}")
+    
 except Exception as e:
     logger.error(f"Error loading models: {e}")
     neural_network = None
@@ -76,8 +91,10 @@ async def predict_job_posting(job: JobPostingRequest):
         raise HTTPException(status_code=503, detail="Models not loaded")
     
     try:
-        # Convert request to DataFrame
-        job_data = pd.DataFrame([job.dict()])
+        # Convert request to DataFrame (add required fraudulent column)
+        job_dict = job.dict()
+        job_dict['fraudulent'] = 0  # Dummy value, not used in prediction
+        job_data = pd.DataFrame([job_dict])
         
         # Preprocess data
         X_processed = preprocessor.transform(job_data)
@@ -150,8 +167,10 @@ async def batch_predict(jobs: list[JobPostingRequest]):
     try:
         results = []
         for job in jobs:
-            # Convert to DataFrame
-            job_data = pd.DataFrame([job.dict()])
+            # Convert to DataFrame (add required fraudulent column)
+            job_dict = job.dict()
+            job_dict['fraudulent'] = 0  # Dummy value, not used in prediction
+            job_data = pd.DataFrame([job_dict])
             
             # Preprocess and predict
             X_processed = preprocessor.transform(job_data)
